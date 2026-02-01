@@ -1,10 +1,9 @@
-// internal/storage/inmem.go (updated for posts)
 package storage
 
 import (
 	"sync"
 
-	"4/internal/models"
+	"aitu-connect/internal/models"
 )
 
 // InMemStore is thread-safe in-memory storage

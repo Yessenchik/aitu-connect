@@ -1,50 +1,38 @@
-// internal/middleware/auth.go (updated: added contextKey, userIDKey, and GetUserIDFromContext)
 package middleware
 
 import (
 	"context"
 	"net/http"
-	"strconv"
+	"time"
 
-	"4/internal/storage"
+	"aitu-connect/internal/repo"
 )
 
-type contextKey string
+type ctxKey string
 
-const userIDKey contextKey = "userID"
+const userIDKey ctxKey = "userID"
 
-// AuthMiddleware checks session cookie and sets user ID in context
-func AuthMiddleware(store *storage.InMemStore) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			cookie, err := r.Cookie("session")
-			if err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			userID, err := strconv.Atoi(cookie.Value)
-			if err != nil {
-				http.Error(w, "Invalid session", http.StatusUnauthorized)
-				return
-			}
-
-			// Verify user exists
-			_, exists := store.GetUserByID(userID)
-			if !exists {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-
-			// Set user ID in context
-			ctx := context.WithValue(r.Context(), userIDKey, userID)
-			next.ServeHTTP(w, r.WithContext(ctx))
-		})
-	}
+func UserIDFromContext(ctx context.Context) (string, bool) {
+	v := ctx.Value(userIDKey)
+	id, ok := v.(string)
+	return id, ok
 }
 
-// GetUserIDFromContext retrieves the user ID from the request context
-func GetUserIDFromContext(r *http.Request) int {
-	userID, _ := r.Context().Value(userIDKey).(int)
-	return userID
+func RequireAuth(sessions *repo.SessionRepo, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := r.Cookie("sid")
+		if err != nil || c.Value == "" {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		userID, expiresAt, err := sessions.GetUserIDBySession(r.Context(), c.Value)
+		if err != nil || time.Now().After(expiresAt) {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), userIDKey, userID)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
