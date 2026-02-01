@@ -1,0 +1,50 @@
+<!-- static/index.html (updated for posts) -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Social Feed</title>
+    <script src="script.js"></script>
+</head>
+<body>
+<h1>Social Feed</h1>
+<ul id="postList"></ul>
+<textarea id="content" placeholder="What's on your mind?"></textarea>
+<button type="button" onclick="createPost()">Post</button>
+<script>
+    function loadPosts() {
+        fetch('/api/posts')
+            .then(res => res.json())
+            .then(posts => {
+                const list = document.getElementById('postList');
+                list.innerHTML = '';
+                posts.forEach(post => {
+                    const li = document.createElement('li');
+                    li.textContent = `${post.content} (Posted at ${post.created_at})`;
+                    if (post.user_id === currentUserId) {  // Assume currentUserId set after login, but for simplicity, allow delete if owned (backend checks)
+                        const delBtn = document.createElement('button');
+                        delBtn.textContent = 'Delete';
+                        delBtn.onclick = () => deletePost(post.id);
+                        li.appendChild(delBtn);
+                    }
+                    list.appendChild(li);
+                });
+            })
+            .catch(() => alert('Error loading posts'));
+    }
+
+    function createPost() {
+        const data = { content: document.getElementById('content').value };
+        apiPost('/api/posts', data, loadPosts);
+    }
+
+    function deletePost(id) {
+        fetch(`/api/posts?id=${id}`, { method: 'DELETE' })
+            .then(() => loadPosts())
+            .catch(() => alert('Error deleting post'));
+    }
+
+    window.onload = loadPosts;
+</script>
+</body>
+</html>
