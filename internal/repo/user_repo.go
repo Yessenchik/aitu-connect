@@ -7,10 +7,14 @@ import (
 )
 
 type User struct {
-	ID           string
-	Email        string
+	ID           string `json:"id"`
+	Email        string `json:"email"`
 	PasswordHash string
-	Role         string
+	Role         string `json:"role"`
+	FirstName    string `json:"first_name"`
+	LastName     string `json:"last_name"`
+	Bio          string `json:"bio"`
+	AvatarURL    string `json:"avatar_url"`
 }
 
 type UserRepo struct {
@@ -48,4 +52,34 @@ func (r *UserRepo) ExistsByEmail(ctx context.Context, email string) (bool, error
 	var exists bool
 	err := r.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE email=$1)`, email).Scan(&exists)
 	return exists, err
+}
+
+func (r *UserRepo) GetByID(ctx context.Context, id string) (*User, error) {
+	u := &User{}
+	err := r.db.QueryRow(ctx, `
+		SELECT
+		  id::text,
+		  email,
+		  password_hash,
+		  role,
+		  COALESCE(first_name, ''),
+		  COALESCE(last_name, ''),
+		  COALESCE(bio, ''),
+		  COALESCE(avatar_url, '')
+		FROM users
+		WHERE id = $1::uuid
+	`, id).Scan(
+		&u.ID,
+		&u.Email,
+		&u.PasswordHash,
+		&u.Role,
+		&u.FirstName,
+		&u.LastName,
+		&u.Bio,
+		&u.AvatarURL,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return u, nil
 }

@@ -8,6 +8,7 @@ import (
 
 	"aitu-connect/internal/db"
 	"aitu-connect/internal/handlers"
+	"aitu-connect/internal/middleware"
 	"aitu-connect/internal/repo"
 	"aitu-connect/internal/services"
 )
@@ -27,6 +28,7 @@ func main() {
 	sessRepo := repo.NewSessionRepo(pool)
 	authSvc := services.NewAuthService(userRepo, sessRepo)
 	authH := handlers.NewAuthHandler(authSvc)
+	profileH := handlers.NewProfileHandler(userRepo)
 
 	mux := http.NewServeMux()
 
@@ -61,6 +63,8 @@ func main() {
 	mux.HandleFunc("POST /api/auth/signup", authH.SignUp)
 	mux.HandleFunc("POST /api/auth/login", authH.SignIn)
 	mux.HandleFunc("POST /api/auth/logout", authH.Logout)
+
+	mux.Handle("GET /api/me", middleware.RequireAuth(sessRepo, http.HandlerFunc(profileH.Me)))
 
 	// Frontend static pages
 	fs := http.FileServer(http.Dir("./frontend"))

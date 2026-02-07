@@ -29,7 +29,7 @@ func (r *SessionRepo) GetUserIDBySession(ctx context.Context, sessionID string) 
 	var userID string
 	var expiresAt time.Time
 	err := r.db.QueryRow(ctx, `
-		SELECT user_id, expires_at
+		SELECT user_id::text, expires_at
 		FROM sessions
 		WHERE id = $1
 	`, sessionID).Scan(&userID, &expiresAt)

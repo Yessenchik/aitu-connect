@@ -163,14 +163,15 @@
     </div>
 
     <nav class="nav">
-      <button class="tab active" data-tab="profile">
-        Profile <span>→</span>
+      <button class="tab" data-tab="posts">
+        Posts <span>→</span>
       </button>
       <button class="tab" data-tab="messages">
         Messages <span>→</span>
       </button>
-      <button class="tab" data-tab="posts">
-        Posts <span>→</span>
+
+      <button class="tab active" data-tab="profile">
+        Profile <span>→</span>
       </button>
     </nav>
 
@@ -220,7 +221,7 @@
     posts: "News feed, posts, likes and comments."
   };
 
-  function show(tabName){
+  function show(tabName) {
     tabs.forEach(t => t.classList.toggle("active", t.dataset.tab === tabName));
     panels.forEach(p => p.classList.toggle("hidden", p.id !== tabName));
     pageTitle.textContent = tabName.charAt(0).toUpperCase() + tabName.slice(1);
@@ -235,30 +236,93 @@
     window.location.href = "/auth/";
   };
 
-  // Optional: load profile info (requires /api/me endpoint)
-  async function loadProfile(){
-    const el = document.getElementById("profileInfo");
+  function initials(firstName, lastName) {
+    const a = (firstName || "").trim().charAt(0).toUpperCase();
+    const b = (lastName || "").trim().charAt(0).toUpperCase();
+    return (a + b) || "??";
+  }
 
-    // If you DON'T have /api/me yet, comment this whole function.
+  function escapeHtml(s) {
+    return (s || "").replace(/[&<>"']/g, c => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#039;"
+    }[c]));
+  }
+
+  async function loadProfile() {
+    const el = document.getElementById("profileInfo");
+    if (!el) return;
+
     const res = await fetch("/api/me", { credentials: "include" });
     if (res.status === 401) {
       window.location.href = "/auth/";
       return;
     }
+    if (!res.ok) throw new Error("failed to load profile");
+
     const me = await res.json();
 
+    const init = initials(me.first_name, me.last_name);
+    const teamsHref =
+            `https://teams.microsoft.com/l/chat/0/0?users=${encodeURIComponent(me.email)}`;
+    const outlookHref =
+            `https://outlook.office.com/mail/deeplink/compose?to=${encodeURIComponent(me.email)}`;
+
     el.innerHTML = `
-        <div><b>Email:</b> ${me.email}</div>
-        <div><b>Name:</b> ${me.first_name} ${me.last_name}</div>
-        <div><b>Role:</b> ${me.role}</div>
-        <div><b>Bio:</b> ${me.bio ? me.bio : "<span style='color:#6b7280'>empty</span>"}</div>
-      `;
+      <div style="display:flex; gap:16px; align-items:center;">
+        <div style="
+          width:64px; height:64px; border-radius:50%;
+          display:flex; align-items:center; justify-content:center;
+          font-weight:700; font-size:20px;
+          background:#e8f0ff; color:#1d4ed8;">
+          ${escapeHtml(init)}
+        </div>
+
+        <div style="display:flex; flex-direction:column; gap:6px;">
+          <div style="font-size:18px; font-weight:700;">
+            ${escapeHtml(me.first_name)} ${escapeHtml(me.last_name)}
+          </div>
+
+          <div style="color:#6b7280;">
+            <b>barcode:</b> ${escapeHtml(me.email)}
+          </div>
+
+          <div style="display:flex; gap:12px;">
+            <a href="${teamsHref}" target="_blank" rel="noreferrer">Teams</a>
+            <a href="${outlookHref}" target="_blank" rel="noreferrer">Outlook</a>
+          </div>
+        </div>
+      </div>
+
+      <hr style="margin:16px 0; border:none; border-top:1px solid #e5e7eb;" />
+
+      <div><b>Role:</b> ${escapeHtml(me.role || "")}</div>
+      <div style="margin-top:6px;">
+        <b>Bio:</b> ${
+            me.bio
+                    ? escapeHtml(me.bio)
+                    : "<span style='color:#6b7280'>empty</span>"
+    }
+      </div>
+
+      <hr style="margin:16px 0; border:none; border-top:1px solid #e5e7eb;" />
+
+      <h3 style="margin:0 0 10px 0;">My posts</h3>
+      <div id="myPosts" style="color:#6b7280;">(Posts will appear here after we add posts API)</div>
+    `;
   }
 
+  // Load profile on page load
   loadProfile().catch(() => {
-    document.getElementById("profileInfo").textContent =
-            "Profile loading requires /api/me (backend).";
+    const el = document.getElementById("profileInfo");
+    if (el) el.textContent = "Profile loading requires /api/me (backend).";
   });
+
+  // Default tab (optional)
+  show("posts");
 </script>
 </body>
 </html>
