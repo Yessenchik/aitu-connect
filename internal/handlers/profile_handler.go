@@ -1,3 +1,4 @@
+//internal/handlers/profile_handler.go
 package handlers
 
 import (
