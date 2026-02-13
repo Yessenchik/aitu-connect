@@ -4,7 +4,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"time"
+	"path/filepath"
 
 	"aitu-connect/internal/db"
 	"aitu-connect/internal/handlers"
@@ -24,68 +24,92 @@ func main() {
 	}
 	defer pool.Close()
 
+	// Repositories
 	userRepo := repo.NewUserRepo(pool)
 	sessRepo := repo.NewSessionRepo(pool)
+	postRepo := repo.NewPostRepo(pool)
+	chatRepo := repo.NewChatRepo(pool)
+
+	// Services
 	authSvc := services.NewAuthService(userRepo, sessRepo)
+
+	// Handlers
 	authH := handlers.NewAuthHandler(authSvc)
 	profileH := handlers.NewProfileHandler(userRepo)
+	postH := handlers.NewPostHandler(postRepo)
+	chatH := handlers.NewChatHandler(chatRepo, userRepo)
 
 	mux := http.NewServeMux()
 
-	// API
-
-	// 1) Entry route "/"
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if isLoggedIn(r, sessRepo) {
-			http.Redirect(w, r, "/dashboard/", http.StatusFound)
-			return
-		}
-		http.Redirect(w, r, "/auth/", http.StatusFound)
-	})
-
-	// 2) Auth page "/auth/"
-	mux.HandleFunc("GET /auth/", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, "./frontend/auth/index.html")
-	})
-
-	// 3) Dashboard page "/dashboard/" (protected)
-	mux.HandleFunc("GET /dashboard/", func(w http.ResponseWriter, r *http.Request) {
-		if !isLoggedIn(r, sessRepo) {
-			http.Redirect(w, r, "/auth/", http.StatusFound)
-			return
-		}
-		http.ServeFile(w, r, "./frontend/dashboard/index.html")
-	})
-
-	// Static files (optional)
-	mux.Handle("GET /static/", http.StripPrefix("/static/", http.FileServer(http.Dir("./frontend/static"))))
-
+	// Auth API
 	mux.HandleFunc("POST /api/auth/signup", authH.SignUp)
 	mux.HandleFunc("POST /api/auth/login", authH.SignIn)
 	mux.HandleFunc("POST /api/auth/logout", authH.Logout)
 
+	// Profile API
 	mux.Handle("GET /api/me", middleware.RequireAuth(sessRepo, http.HandlerFunc(profileH.Me)))
 
-	// Frontend static pages
-	fs := http.FileServer(http.Dir("./frontend"))
-	mux.Handle("/", fs)
+	// Posts API
+	mux.Handle("GET /api/posts/feed", middleware.RequireAuth(sessRepo, http.HandlerFunc(postH.GetFeed)))
+	mux.Handle("POST /api/posts", middleware.RequireAuth(sessRepo, http.HandlerFunc(postH.CreatePost)))
+	mux.Handle("POST /api/posts/like", middleware.RequireAuth(sessRepo, http.HandlerFunc(postH.ToggleLike)))
+	mux.Handle("POST /api/posts/comment", middleware.RequireAuth(sessRepo, http.HandlerFunc(postH.AddComment)))
+	mux.Handle("GET /api/posts/comments", middleware.RequireAuth(sessRepo, http.HandlerFunc(postH.GetComments)))
 
-	log.Println("server on :8080")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	// Chat API
+	mux.Handle("GET /api/chat/conversations", middleware.RequireAuth(sessRepo, http.HandlerFunc(chatH.GetConversations)))
+	mux.Handle("GET /api/chat/conversation", middleware.RequireAuth(sessRepo, http.HandlerFunc(chatH.GetOrCreateConversation)))
+	mux.Handle("GET /api/chat/messages", middleware.RequireAuth(sessRepo, http.HandlerFunc(chatH.GetMessages)))
+	mux.Handle("GET /api/chat/users", middleware.RequireAuth(sessRepo, http.HandlerFunc(chatH.GetAllUsers)))
+	mux.Handle("GET /api/chat/ws", middleware.RequireAuth(sessRepo, http.HandlerFunc(chatH.HandleWebSocket)))
+
+	// Serve static files with SPA fallback
+	mux.HandleFunc("/", spaHandler("./frontend/build"))
+
+	// CORS middleware
+	handler := corsMiddleware(mux)
+
+	log.Println("Server starting on :8080")
+	log.Fatal(http.ListenAndServe(":8080", handler))
 }
 
-func isLoggedIn(r *http.Request, sessRepo *repo.SessionRepo) bool {
-	c, err := r.Cookie("sid")
-	if err != nil || c.Value == "" {
-		return false
-	}
+// SPA Handler - returns index.html for all non-API routes
+func spaHandler(buildDir string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Build the full path
+		path := filepath.Join(buildDir, r.URL.Path)
 
-	userID, expiresAt, err := sessRepo.GetUserIDBySession(r.Context(), c.Value)
-	if err != nil || userID == "" {
-		return false
+		// Check if path exists and is a file
+		fileInfo, err := os.Stat(path)
+		if err == nil && !fileInfo.IsDir() {
+			// Serve the file
+			http.ServeFile(w, r, path)
+			return
+		}
+
+		// For all other routes (including /dashboard/*), serve index.html
+		indexPath := filepath.Join(buildDir, "index.html")
+		http.ServeFile(w, r, indexPath)
 	}
-	if time.Now().After(expiresAt) {
-		return false
-	}
-	return true
+}
+
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			origin = "*"
+		}
+
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
 }
